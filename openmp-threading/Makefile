@@ -63,7 +63,7 @@ ifneq (,$(findstring clang,$(CC)))
 	CFLAGS += -fopenmp -DOPENMP
   endif
   ifeq ($(OBJSAN),yes)
-  CFLAGS += -flto=full
+  CFLAGS += -flto -fsanitize=object
   LDFLAGS += -fsanitize=object -flto -fuse-ld=lld -Wl,-mllvm -Wl,-instrumentor-runtime-bitcode=objsan_ir_rt.bc
   program=XSBench.objsan
 	obj = $(source:.c=.objsan.o)
