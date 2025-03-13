@@ -4,15 +4,18 @@
 
 # Compiler can be set below, or via environment variable
 ifeq ($(CC),)
-CC    = gcc
+CC    = clang
 endif
 OPTIMIZE    = yes
-OPENMP      = yes
+OPENMP      = no
+OBJSAN      = yes
 DEBUG       = no
 PROFILE     = no
 MPI         = no
 AML         = no
 
+
+LLVM_DIR=/scr/ivan/src/input-gen/
 #===============================================================================
 # Program name & source code list
 #===============================================================================
@@ -35,7 +38,7 @@ obj = $(source:.c=.o)
 
 # Make sure we didn't pick up lower case cc
 ifeq (cc,$(CC))
-CC    = gcc
+CC    = clang
 endif
 
 # Standard Flags
@@ -55,8 +58,15 @@ endif
 # LLVM Compiler
 ifneq (,$(findstring clang,$(CC)))
   CFLAGS += -flto
+  LDFLAGS += -fuse-ld=lld
   ifeq ($(OPENMP),yes)
 	CFLAGS += -fopenmp -DOPENMP
+  endif
+  ifeq ($(OBJSAN),yes)
+  CFLAGS += -flto=full
+  LDFLAGS += -fsanitize=object -flto -fuse-ld=lld -Wl,-mllvm -Wl,-instrumentor-runtime-bitcode=objsan_ir_rt.bc
+  program=XSBench.objsan
+	obj = $(source:.c=.objsan.o)
   endif
 endif
 
@@ -101,8 +111,11 @@ endif
 # Targets to Build
 #===============================================================================
 
-$(program): $(obj) XSbench_header.h Makefile
+$(program): $(obj) XSbench_header.h Makefile objsan_ir_rt.bc
 	$(CC) $(CFLAGS) $(obj) -o $@ $(LDFLAGS)
+
+%.objsan.o: %.c XSbench_header.h Makefile
+	$(CC) $(CFLAGS) -c $< -o $@
 
 %.o: %.c XSbench_header.h Makefile
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -112,6 +125,9 @@ clean:
 
 edit:
 	vim -p $(source) XSbench_header.h
+
+objsan_ir_rt.bc: $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp
+	$(CC) -c -emit-llvm -O3 $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o objsan_ir_rt.bc
 
 run:
 	./$(program)
