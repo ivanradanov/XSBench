@@ -66,7 +66,9 @@ endif
 
 ifneq (,$(findstring clang,$(CC)))
   LDFLAGS += --rocm-path=$(ROCM_PATH) -L$(ROCM_PATH)/lib -fuse-ld=lld -flto -lstdc++ -lamdhip64
+  NLDFLAGS += --rocm-path=$(ROCM_PATH) -L$(ROCM_PATH)/lib -fuse-ld=lld -flto -lstdc++ -lamdhip64
   CFLAGS += -x hip -flto --rocm-path=$(ROCM_PATH) --offload-arch=$(GPU_ARCH)
+  NCFLAGS += -x hip -flto --rocm-path=$(ROCM_PATH) --offload-arch=$(GPU_ARCH)
 endif
 
 # Debug Flags
@@ -96,6 +98,10 @@ DEVICE_OBJSAN_IR_RT = objsan_ir_rt.bc.$(DEVICE_TARGET)
 HOST_TARGET=x86_64-unknown-linux-gnu
 HOST_OBJSAN_IR_RT = objsan_ir_rt.bc.$(HOST_TARGET)
 
+HIP_PRELOAD=hip_preload.so
+
+all: $(program) $(HIP_PRELOAD)
+
 $(program): $(obj) XSbench_header.h Makefile
 	$(CC) $(obj) -o $@ $(LDFLAGS)
 
@@ -115,6 +121,9 @@ edit:
 
 run: $(program)
 	./$(program) -m event
+
+$(HIP_PRELOAD): $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_impl_hip.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_hip.cpp
+	$(CC) $(NCFLAGS) $(NLDFLAGS) $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_impl_hip.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_hip.cpp -o $(HIP_PRELOAD) -I$(LLVM_DIR)/compiler-rt/lib/objsan/include
 
 $(DEVICE_OBJSAN_IR_RT): $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp
 	$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(DEVICE_OBJSAN_IR_RT).rt -D__OBJSAN_DEVICE__ -DNDEBUG
