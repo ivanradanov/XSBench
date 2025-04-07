@@ -58,15 +58,15 @@ endif
 
 ifeq ($(CONFIG),clang_objsan)
   CC = clang++
-  CFLAGS += -fsanitize=object -mllvm -objsan-runtime-bitcode=objsan_ir_rt.bc -foffload-lto -fgpu-rdc
-  LDFLAGS += -fsanitize=object -Wl,-mllvm -Wl,-objsan-runtime-bitcode=objsan_ir_rt.bc -foffload-lto -fgpu-rdc
+  CFLAGS += -fsanitize=object -mllvm -objsan-runtime-bitcode=objsan_ir_rt.bc
+  LDFLAGS += -fsanitize=object -Wl,-mllvm -Wl,-objsan-runtime-bitcode=objsan_ir_rt.bc
   program=XSBench.clang_objsan
 	obj = $(source:.cpp=.clang_objsan.o)
 endif
 
 ifneq (,$(findstring clang,$(CC)))
-  COMMON_CFLAGS = -x hip -flto --rocm-path=$(ROCM_PATH) --offload-arch=$(GPU_ARCH)
-  COMMON_LDFLAGS = --rocm-path=$(ROCM_PATH) -L$(ROCM_PATH)/lib -fuse-ld=lld -flto -lstdc++ -lamdhip64
+  COMMON_CFLAGS = -x hip -flto --rocm-path=$(ROCM_PATH) --offload-arch=$(GPU_ARCH) --offload-new-driver -foffload-lto -fgpu-rdc
+  COMMON_LDFLAGS = --rocm-path=$(ROCM_PATH) -L$(ROCM_PATH)/lib -fuse-ld=lld -flto -lstdc++ -lamdhip64 --offload-link --offload-new-driver -foffload-lto -fgpu-rdc
   LDFLAGS += $(COMMON_LDFLAGS)
   RT_LDFLAGS += $(COMMON_LDFLAGS)
   CFLAGS += $(COMMON_CFLAGS)
@@ -104,8 +104,8 @@ HIP_PRELOAD=hip_preload.so
 
 all: $(program) $(HIP_PRELOAD)
 
-$(program): $(obj) XSbench_header.h Makefile
-	$(CC) $(obj) -o $@ $(LDFLAGS)
+$(program): $(obj) XSbench_header.h Makefile $(HIP_PRELOAD)
+	$(CC) $(obj) $(HIP_PRELOAD) -o $@ $(LDFLAGS)
 
 %.o: %.cpp XSbench_header.h Makefile
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -121,17 +121,17 @@ clean:
 edit:
 	vim -p $(source) XSbench_header.h
 
-run: $(program)
-	./$(program) -m event
+run: $(program) $(HIP_PRELOAD)
+	LD_PRELOAD=$(HIP_PRELOAD) ./$(program) -m event
 
 $(HIP_PRELOAD): $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_impl_hip.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_hip.cpp
-	$(CC) $(RT_CFLAGS) $(RT_LDFLAGS) $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_impl_hip.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_hip.cpp -o $(HIP_PRELOAD) -I$(LLVM_DIR)/compiler-rt/lib/objsan/include
+	$(CC) -shared -undefined dynamic_lookup $(RT_CFLAGS) $(RT_LDFLAGS) $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_impl_hip.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_hip.cpp -o $(HIP_PRELOAD) -I$(LLVM_DIR)/compiler-rt/lib/objsan/include
 
 $(DEVICE_OBJSAN_IR_RT): $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp
-	$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(DEVICE_OBJSAN_IR_RT) -D__OBJSAN_DEVICE__ -DNDEBUG
-	#$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(DEVICE_OBJSAN_IR_RT).rt -D__OBJSAN_DEVICE__ -DNDEBUG
-	#$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_rt.cpp -o $(DEVICE_OBJSAN_IR_RT).storage -D__OBJSAN_DEVICE__ -DNDEBUG
-	#llvm-link $(DEVICE_OBJSAN_IR_RT).storage $(DEVICE_OBJSAN_IR_RT).rt -o $(DEVICE_OBJSAN_IR_RT)
+	#$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(DEVICE_OBJSAN_IR_RT) -D__OBJSAN_DEVICE__ -D__OBJSAN_DEVICE_DISABLE_PRINTF__ -DNDEBUG
+	$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(DEVICE_OBJSAN_IR_RT).rt -D__OBJSAN_DEVICE__ -D__OBJSAN_DEVICE_DISABLE_PRINTF__ -DNDEBUG
+	$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_rt.cpp -o $(DEVICE_OBJSAN_IR_RT).storage -D__OBJSAN_DEVICE__ -D__OBJSAN_DEVICE_DISABLE_PRINTF__ -DNDEBUG
+	llvm-link $(DEVICE_OBJSAN_IR_RT).storage $(DEVICE_OBJSAN_IR_RT).rt -o $(DEVICE_OBJSAN_IR_RT)
 
 $(HOST_OBJSAN_IR_RT): $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp
 	$(CC) -c -emit-llvm -O3 -target $(HOST_TARGET) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(HOST_OBJSAN_IR_RT) -D__OBJSAN_HOST__ -DNDEBUG
