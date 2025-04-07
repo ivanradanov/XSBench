@@ -29,8 +29,6 @@ GridInit.cpp \
 XSutils.cpp \
 Materials.cpp
 
-obj = $(source:.cpp=.o)
-
 #===============================================================================
 # Sets Flags
 #===============================================================================
@@ -58,9 +56,12 @@ endif
 
 ifeq ($(CONFIG),clang_objsan)
   CC = clang++
-  CFLAGS += -fsanitize=object -mllvm -objsan-runtime-bitcode=objsan_ir_rt.bc
+  CFLAGS += -fsanitize=object -mllvm -objsan-runtime-bitcode=objsan_ir_rt.bc -I$(LLVM_DIR)/compiler-rt/lib/objsan/include/
   LDFLAGS += -fsanitize=object -Wl,-mllvm -Wl,-objsan-runtime-bitcode=objsan_ir_rt.bc
   program=XSBench.clang_objsan
+	source += objsan_preload_impl_hip.cpp \
+	  objsan_preload.cpp \
+	  objsan_preload_hip.cpp
 	obj = $(source:.cpp=.clang_objsan.o)
 endif
 
@@ -68,15 +69,15 @@ ifneq (,$(findstring clang,$(CC)))
   COMMON_CFLAGS = -x hip -flto --rocm-path=$(ROCM_PATH) --offload-arch=$(GPU_ARCH) --offload-new-driver -foffload-lto -fgpu-rdc
   COMMON_LDFLAGS = --rocm-path=$(ROCM_PATH) -L$(ROCM_PATH)/lib -fuse-ld=lld -flto -lstdc++ -lamdhip64 --offload-link --offload-new-driver -foffload-lto -fgpu-rdc
   LDFLAGS += $(COMMON_LDFLAGS)
-  RT_LDFLAGS += $(COMMON_LDFLAGS)
   CFLAGS += $(COMMON_CFLAGS)
-  RT_CFLAGS += $(COMMON_CFLAGS)
 endif
 
 # Debug Flags
 ifeq ($(DEBUG),yes)
-  CFLAGS += -g -G
-  LDFLAGS  += -g -G
+  CFLAGS += -g
+  LDFLAGS  += -g
+  RT_CFLAGS += -g
+  RT_LDFLAGS  += -g
 endif
 
 # Profiling Flags
@@ -89,6 +90,8 @@ endif
 ifeq ($(OPTIMIZE),yes)
   CFLAGS += -O3
   LDFLAGS += -O3
+  RT_CFLAGS += -O3
+  RT_LDFLAGS  += -O3
 endif
 
 #===============================================================================
@@ -102,10 +105,10 @@ HOST_OBJSAN_IR_RT = objsan_ir_rt.bc.$(HOST_TARGET)
 
 HIP_PRELOAD=hip_preload.so
 
-all: $(program) $(HIP_PRELOAD)
+all: $(program) #$(HIP_PRELOAD)
 
-$(program): $(obj) XSbench_header.h Makefile $(HIP_PRELOAD)
-	$(CC) $(obj) $(HIP_PRELOAD) -o $@ $(LDFLAGS)
+$(program): $(obj) XSbench_header.h Makefile # $(HIP_PRELOAD)
+	$(CC) $(obj) -o $@ $(LDFLAGS)
 
 %.o: %.cpp XSbench_header.h Makefile
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -116,7 +119,7 @@ $(program): $(obj) XSbench_header.h Makefile $(HIP_PRELOAD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(program) $(obj) $(DEVICE_OBJSAN_IR_RT) $(HOST_OBJSAN_IR_RT)
+	rm -rf $(program) $(obj) $(DEVICE_OBJSAN_IR_RT) $(HOST_OBJSAN_IR_RT) objsan_preload*.cpp
 
 edit:
 	vim -p $(source) XSbench_header.h
@@ -124,14 +127,18 @@ edit:
 run: $(program) $(HIP_PRELOAD)
 	LD_PRELOAD=$(HIP_PRELOAD) ./$(program) -m event
 
-$(HIP_PRELOAD): $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_impl_hip.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_hip.cpp
-	$(CC) -shared -undefined dynamic_lookup $(RT_CFLAGS) $(RT_LDFLAGS) $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_impl_hip.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload.cpp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_hip.cpp -o $(HIP_PRELOAD) -I$(LLVM_DIR)/compiler-rt/lib/objsan/include
-
+#$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(DEVICE_OBJSAN_IR_RT) -D__OBJSAN_DEVICE__ -D__OBJSAN_DEVICE_DISABLE_PRINTF__ -DNDEBUG
 $(DEVICE_OBJSAN_IR_RT): $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp
-	#$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(DEVICE_OBJSAN_IR_RT) -D__OBJSAN_DEVICE__ -D__OBJSAN_DEVICE_DISABLE_PRINTF__ -DNDEBUG
-	$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(DEVICE_OBJSAN_IR_RT).rt -D__OBJSAN_DEVICE__ -D__OBJSAN_DEVICE_DISABLE_PRINTF__ -DNDEBUG
-	$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_rt.cpp -o $(DEVICE_OBJSAN_IR_RT).storage -D__OBJSAN_DEVICE__ -D__OBJSAN_DEVICE_DISABLE_PRINTF__ -DNDEBUG
+	$(CC) $(RT_CFLAGS) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(DEVICE_OBJSAN_IR_RT).rt -D__OBJSAN_DEVICE__ -D__OBJSAN_DEVICE_DISABLE_PRINTF__ -DNDEBUG
+	$(CC) $(RT_CFLAGS) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_rt.cpp -o $(DEVICE_OBJSAN_IR_RT).storage -D__OBJSAN_DEVICE__ -D__OBJSAN_DEVICE_DISABLE_PRINTF__ -DNDEBUG
 	llvm-link $(DEVICE_OBJSAN_IR_RT).storage $(DEVICE_OBJSAN_IR_RT).rt -o $(DEVICE_OBJSAN_IR_RT)
 
 $(HOST_OBJSAN_IR_RT): $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp
 	$(CC) -c -emit-llvm -O3 -target $(HOST_TARGET) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(HOST_OBJSAN_IR_RT) -D__OBJSAN_HOST__ -DNDEBUG
+
+objsan_preload_impl_hip.cpp: $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_impl_hip.cpp
+	cp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_impl_hip.cpp ./
+objsan_preload.cpp: $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload.cpp
+	cp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload.cpp ./
+objsan_preload_hip.cpp: $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_hip.cpp
+	cp $(LLVM_DIR)/compiler-rt/lib/objsan/preload/objsan_preload_hip.cpp ./
