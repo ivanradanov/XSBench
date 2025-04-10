@@ -123,22 +123,18 @@ __device__ void calculate_micro_xs(   double p_energy, int nuc, long n_isotopes,
 
 		// pull ptr from nuclide grid and check to ensure that
 		// we're not reading off the end of the nuclide's grid
-		#if 0
 		if( idx == n_gridpoints - 1 )
 			low = &nuclide_grids[nuc*n_gridpoints + idx - 1];
 		else
-	    #endif
 			low = &nuclide_grids[nuc*n_gridpoints + idx];
 	}
 	else if( grid_type == UNIONIZED) // Unionized Energy Grid - we already know the index, no binary search needed.
 	{
 		// pull ptr from energy grid and check to ensure that
 		// we're not reading off the end of the nuclide's grid
-		#if 0
 		if( index_data[idx * n_isotopes + nuc] == n_gridpoints - 1 )
 			low = &nuclide_grids[nuc*n_gridpoints + index_data[idx * n_isotopes + nuc] - 1];
 		else
-			#endif
 			low = &nuclide_grids[nuc*n_gridpoints + index_data[idx * n_isotopes + nuc]];
 	}
 	else // Hash grid
@@ -166,16 +162,13 @@ __device__ void calculate_micro_xs(   double p_energy, int nuc, long n_isotopes,
 		else
 			lower = grid_search_nuclide( n_gridpoints, p_energy, &nuclide_grids[nuc*n_gridpoints], u_low, u_high);
 
-		#if 0
 		if( lower == n_gridpoints - 1 )
 			low = &nuclide_grids[nuc*n_gridpoints + lower - 1];
 		else
-			#endif
 			low = &nuclide_grids[nuc*n_gridpoints + lower];
 	}
 	
 	high = low + 1;
-	low = high - 2;
 	
 	// calculate the re-useable interpolation factor
 	f = (high->energy - p_energy) / (high->energy - low->energy);
@@ -209,7 +202,7 @@ __device__ void calculate_macro_xs( double p_energy, int mat, long n_isotopes,
 	double conc; // the concentration of the nuclide in the material
 
 	// cleans out macro_xs_vector
-	for( int k = 0; k < 6; k++ )
+	for( int k = 0; k < 5; k++ )
 		macro_xs_vector[k] = 0;
 
 	// If we are using the unionized energy grid (UEG), we only
