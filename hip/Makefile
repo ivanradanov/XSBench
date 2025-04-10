@@ -124,8 +124,9 @@ clean:
 edit:
 	vim -p $(source) XSbench_header.h
 
-run: $(program) $(HIP_PRELOAD)
-	LD_PRELOAD=$(HIP_PRELOAD) ./$(program) -m event
+run: $(program) # $(HIP_PRELOAD)
+	#LD_PRELOAD=$(HIP_PRELOAD)
+	./$(program) -m event
 
 #$(CC) -c -emit-llvm -O3 -target $(DEVICE_TARGET) -mcpu=$(GPU_ARCH) $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp -o $(DEVICE_OBJSAN_IR_RT) -D__OBJSAN_DEVICE__ -D__OBJSAN_DEVICE_DISABLE_PRINTF__ -DNDEBUG
 $(DEVICE_OBJSAN_IR_RT): $(LLVM_DIR)/compiler-rt/lib/objsan/objsan_ir_rt.cpp
